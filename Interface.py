@@ -31,21 +31,7 @@ class BotInterface():
                         'attachment': attachment,
                         'random_id': get_random_id()}
                        )
-
-    def check_profile_in_database(self, user_id):
-        cursor = self.conn.cursor()
-
-        cursor.execute("SELECT * FROM matches WHERE profile_id = %s", (user_id,))
-        result = cursor.fetchone()
-
-        return result is not None
-
-    def add_profile_to_database(self, user_id):
-        cursor = self.conn.cursor()
-
-        cursor.execute("INSERT INTO matches (profile_id) VALUES (%s)", (user_id,))
-        self.conn.commit()
-
+   
     def get_user_info(self, user_id):
         user_info = self.vk_tools.get_profile_info(user_id)
 
@@ -98,8 +84,8 @@ class BotInterface():
                         self.worksheets = self.vk_tools.search_worksheet(self.params, self.offset)
                         worksheet = self.worksheets.pop()
 
-                        if not self.check_profile_in_database(event.user_id):
-                            self.add_profile_to_database(event.user_id)
+                        if not self.check_profile_in_database(event.user_id, worksheet["id"]):
+                            self.add_profile_to_database(event.user_id, worksheet["id"])
 
                         photos = self.vk_tools.get_photos(worksheet['id'])
                         photo_string = ''
@@ -112,6 +98,7 @@ class BotInterface():
                         f'Имя: {worksheet["name"]} Ссылка: vk.com/{worksheet["id"]}',
                         attachment=photo_string
                     )
+
                 elif event.text.lower() == 'пока':
                     self.message_send(event.user_id, 'До новой встречи')
                 else:
