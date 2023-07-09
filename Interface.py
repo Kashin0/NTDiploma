@@ -84,9 +84,6 @@ class BotInterface():
                         self.worksheets = self.vk_tools.search_worksheet(self.params, self.offset)
                         worksheet = self.worksheets.pop()
 
-                        if not self.check_profile_in_database(event.user_id, worksheet["id"]):
-                            self.add_profile_to_database(event.user_id, worksheet["id"])
-
                         photos = self.vk_tools.get_photos(worksheet['id'])
                         photo_string = ''
                         for photo in photos:
@@ -98,6 +95,9 @@ class BotInterface():
                         f'Имя: {worksheet["name"]} Ссылка: vk.com/{worksheet["id"]}',
                         attachment=photo_string
                     )
+
+                    if not self.check_profile_in_database(event.user_id, worksheet["id"]):
+                        self.add_profile_to_database(event.user_id, worksheet["id"])
 
                 elif event.text.lower() == 'пока':
                     self.message_send(event.user_id, 'До новой встречи')
