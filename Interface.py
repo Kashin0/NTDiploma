@@ -53,6 +53,7 @@ class BotInterface():
                             'Пожалуйста укажите свой возраст используя команду "возраст <число>"')
                         continue
 
+<<<<<<< HEAD
                     # Логика для поиска анкет
                     self.message_send(
                         event.user_id, 'Начинаем поиск')
@@ -74,6 +75,13 @@ class BotInterface():
                     for photo in photos:
                         photo_string += f'photo{photo["owner_id"]}_{photo["id"]},'
                     self.offset += 10
+=======
+                        photos = self.vk_tools.get_photos(worksheet['id'])
+                        photo_string = ''
+                        for photo in photos:
+                            photo_string += f'photo{photo["owner_id"]}_{photo["id"]},'
+                        self.offset += 50
+>>>>>>> 67a701a6ed5342a769e1b5d6dc6a9593e38b3988
 
                     self.message_send(
                         event.user_id,
@@ -81,6 +89,7 @@ class BotInterface():
                         attachment=photo_string
                     )
 
+<<<<<<< HEAD
                     # добавить анкету в бд в соотвествие с event.user_id
                     add_user(self.engine, event.user_id, worksheet['id'])
                 elif event.text.lower().startswith("город "):
@@ -108,6 +117,11 @@ class BotInterface():
                     self.params['year'] = age
                     self.message_send(
                         event.user_id, 'Вы успешно установили свой возраст')
+=======
+                    if not self.check_profile_in_database(event.user_id, worksheet["id"]):
+                        self.add_profile_to_database(event.user_id, worksheet["id"])
+
+>>>>>>> 67a701a6ed5342a769e1b5d6dc6a9593e38b3988
                 elif event.text.lower() == 'пока':
                     self.message_send(
                         event.user_id, 'До новых встреч')
@@ -117,8 +131,13 @@ class BotInterface():
 
 
 if __name__ == '__main__':
+<<<<<<< HEAD
     engine = create_engine(db_url_object)
     Base.metadata.create_all(engine)
 
     bot_interface = BotInterface(comunity_token, acces_token, engine)
     bot_interface.event_handler()
+=======
+    bot_interface = BotInterface(comunity_token, access_token)
+    bot_interface.event_handler()
+>>>>>>> 67a701a6ed5342a769e1b5d6dc6a9593e38b3988
