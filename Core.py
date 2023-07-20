@@ -37,7 +37,20 @@ class VkTools:
             'year': self._bdate_to_year(info.get('bdate'))
         }
         return result
-
+   
+    def get_city(self, city_name):
+        try:
+            cities = self.vkapi.method('database.getCities',
+                                       {
+                                         'q': city_name,
+                                         'count': 1
+                                       }
+                                       )
+            if len(cities['items']) > 0:
+                return cities['items'][0]
+        except ApiError as e:
+            print(f'error = {e}')
+            
     def search_worksheet(self, params, offset):
         try:
             users = self.vkapi.method('users.search',

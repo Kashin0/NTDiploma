@@ -1,28 +1,24 @@
-# Импорты
+# импорты
 import vk_api
-from vk_api.longpoll import VkLongPoll, VkEventType
+from sqlalchemy import create_engine
+from vk_api.longpoll import VkEventType, VkLongPoll
 from vk_api.utils import get_random_id
-import psycopg2
 
-from config import comunity_token, access_token
+from config import acces_token, comunity_token, db_url_object
 from core import VkTools
+from data_store import Base, add_user, check_user
 
-# Отправка сообщений
+
+# отправка сообщений
 class BotInterface():
-    def __init__(self, community_token, access_token):
-        self.vk = vk_api.VkApi(token=community_token)
+    def __init__(self, comunity_token, acces_token, engine):
+        self.vk = vk_api.VkApi(token=comunity_token)
         self.longpoll = VkLongPoll(self.vk)
-        self.vk_tools = VkTools(access_token)
+        self.vk_tools = VkTools(acces_token)
+        self.engine = engine
         self.params = {}
         self.worksheets = []
         self.offset = 0
-
-        # Создание подключения к базе данных
-        self.conn = psycopg2.connect(database="VKinder", user="postgres", password="your_password", host="localhost", port="6434")
-
-    def __del__(self):
-        # Закрытие подключения к базе данных при уничтожении объекта
-        self.conn.close()
 
     def message_send(self, user_id, message, attachment=None):
         self.vk.method('messages.send',
@@ -31,79 +27,98 @@ class BotInterface():
                         'attachment': attachment,
                         'random_id': get_random_id()}
                        )
-   
-    def get_user_info(self, user_id):
-        user_info = self.vk_tools.get_profile_info(user_id)
 
-        if 'sex' not in user_info:
-            self.message_send(user_id, 'Укажите свой пол (1 - мужской, 2 - женский)')
-            # Ожидание ответа пользователя
-            gender_response = self.wait_for_user_response(user_id)
-            user_info['sex'] = int(gender_response)
-
-        if 'bdate' not in user_info:
-            self.message_send(user_id, 'Ваша дата рождения (в формате ДД.ММ.ГГГГ)')
-            # Ожидание ответа пользователя
-            bdate_response = self.wait_for_user_response(user_id)
-            user_info['bdate'] = bdate_response
-
-        if 'city' not in user_info:
-            self.message_send(user_id, 'Укажите свой город проживания')
-            # Ожидание ответа пользователя
-            city_response = self.wait_for_user_response(user_id)
-            user_info['city'] = city_response
-
-        if 'relation' not in user_info:
-            self.message_send(user_id, 'Укажите свое семейное положение (1 - не женат/не замужем, 2 - есть друг/подруга, 3 - помолвлен/помолвлена, 4 - женат/замужем, 5 - всё сложно, 6 - в активном поиске, 7 - влюблен/влюблена, 8 - в гражданском браке)')
-            # Ожидание ответа пользователя
-            relation_response = self.wait_for_user_response(user_id)
-            user_info['relation'] = int(relation_response)
-
-        return user_info
-
-    def wait_for_user_response(self, user_id):
-        for event in self.longpoll.listen():
-            if event.type == VkEventType.MESSAGE_NEW and event.to_me and event.user_id == user_id:
-                return event.text
+# обработка событий / получение сообщений
 
     def event_handler(self):
         for event in self.longpoll.listen():
             if event.type == VkEventType.MESSAGE_NEW and event.to_me:
+                if not self.params:
+                    # Логика для получения данных о пользователе
+                    self.params = self.vk_tools.get_profile_info(event.user_id)
+
                 if event.text.lower() == 'привет':
-                    self.params = self.get_user_info(event.user_id)
-                    self.message_send(event.user_id, f'Привет, {self.params["name"]}')
+                    self.message_send(
+                        event.user_id, f'Привет друг, {self.params["name"]}')
                 elif event.text.lower() == 'поиск':
-                    self.message_send(event.user_id, 'Начнем поиск')
-                    if self.worksheets:
-                        worksheet = self.worksheets.pop()
-                        photos = self.vk_tools.get_photos(worksheet['id'])
-                        photo_string = ''
-                        for photo in photos:
-                            photo_string += f'photo{photo["owner_id"]}_{photo["id"]},'
-                    else:
-                        self.worksheets = self.vk_tools.search_worksheet(self.params, self.offset)
-                        worksheet = self.worksheets.pop()
+                    # Проверка на наличие города в профиле
+                    if self.params.get("city") is None:
+                        self.message_send(
+                            event.user_id,
+                            'Введите город для поиска в формате: "город "Название города""')
+                        continue
+                    elif self.params.get("year") is None:
+                        self.message_send(
+                            event.user_id,
+                            'Пожалуйста укажите свой возраст используя команду "возраст <число>"')
+                        continue
 
-                        if not self.check_profile_in_database(event.user_id, worksheet["id"]):
-                            self.add_profile_to_database(event.user_id, worksheet["id"])
+                    # Логика для поиска анкет
+                    self.message_send(
+                        event.user_id, 'Начинаем поиск')
+                    if not self.worksheets:
+                        self.worksheets = self.vk_tools.search_worksheet(
+                            self.params, self.offset)
 
-                        photos = self.vk_tools.get_photos(worksheet['id'])
-                        photo_string = ''
-                        for photo in photos:
-                            photo_string += f'photo{photo["owner_id"]}_{photo["id"]},'
-                        self.offset += 50
+                    # проверка анкеты в бд в соотвествие с event.user_id
+                    worksheet = None
+                    new_worksheets = []
+                    for worksheet in self.worksheets:
+                        if not check_user(self.engine, event.user_id, worksheet['id']):
+                            new_worksheets.append(worksheet)
+                    self.worksheets = new_worksheets.copy()
+                    worksheet = self.worksheets.pop(0)
+
+                    photos = self.vk_tools.get_photos(worksheet['id'])
+                    photo_string = ''
+                    for photo in photos:
+                        photo_string += f'photo{photo["owner_id"]}_{photo["id"]},'
+                    self.offset += 10
 
                     self.message_send(
                         event.user_id,
-                        f'Имя: {worksheet["name"]} Ссылка: vk.com/{worksheet["id"]}',
+                        f'имя: {worksheet["name"]} ссылка: vk.com/id{worksheet["id"]}',
                         attachment=photo_string
                     )
 
+                    # добавить анкету в бд в соотвествие с event.user_id
+                    add_user(self.engine, event.user_id, worksheet['id'])
+                elif event.text.lower().startswith("город "):
+                    city_name = ' '.join(event.text.lower().split()[1:])
+                    city = self.vk_tools.get_city(city_name)
+                    if city is None:
+                        self.message_send(
+                            event.user_id, 'Такой город не найден')
+                    else:
+                        self.params['city'] = city['title']
+                        self.message_send(
+                            event.user_id, f'Будет выполнен поиск в городе {city["title"]}')
+                elif event.text.lower().startswith("возраст "):
+                    age = event.text.lower().split()[1]
+                    try:
+                        age = int(age)
+                    except ValueError:
+                        self.message_send(
+                            event.user_id, 'Введите число')
+                        continue
+                    if not 18 <= age <= 99:
+                        self.message_send(
+                            event.user_id, 'Ваш возраст должен быть от 18 до 99 лет')
+                        continue
+                    self.params['year'] = age
+                    self.message_send(
+                        event.user_id, 'Вы успешно установили свой возраст')
                 elif event.text.lower() == 'пока':
-                    self.message_send(event.user_id, 'До новой встречи')
+                    self.message_send(
+                        event.user_id, 'До новых встреч')
                 else:
-                    self.message_send(event.user_id, 'Неизвестная команда')
+                    self.message_send(
+                        event.user_id, 'Неизвестная команда')
+
 
 if __name__ == '__main__':
-    bot_interface = BotInterface(comunity_token, access_token)
+    engine = create_engine(db_url_object)
+    Base.metadata.create_all(engine)
+
+    bot_interface = BotInterface(comunity_token, acces_token, engine)
     bot_interface.event_handler()
